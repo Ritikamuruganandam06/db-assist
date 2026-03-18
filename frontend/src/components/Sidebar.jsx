@@ -21,7 +21,7 @@ const Sidebar = ({
       <aside className={`sidebar ${isOpen ? 'open' : 'closed'}`}>
         <div className="sidebar-header">
           <h2 className="sidebar-title">
-            <span className="sidebar-logo">⚡</span> DB Assist
+             QueryGenie
           </h2>
           <button className="sidebar-close-btn" onClick={onToggle} title="Close sidebar">
             ✕

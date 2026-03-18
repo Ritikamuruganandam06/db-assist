@@ -13,7 +13,7 @@ tools = [
      sql_query_execution_tool,
      write_markdown_schema_tool
  ]
- 
+
 memory = MemorySaver()
 agent = create_agent(model,tools,checkpointer = memory,system_prompt=get_system_prompt())
 def call_agent(user_query:str) :

@@ -69,7 +69,7 @@ const Chat = ({ messages, onSendMessage, isLoading }) => {
       <div className="chat-messages" id="chat-messages">
         {messages.length === 0 && !isLoading && (
           <div className="welcome-state">
-            <h2>DB Assist</h2>
+            <h2>QueryGenie</h2>
             <p>
               Your AI-powered database assistant. Ask me to create schemas,
               run queries, manage tables, or anything PostgreSQL related.
