@@ -35,6 +35,17 @@ def _sse(event_type, data):
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 
+def _normalize_content(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in content
+        )
+    return str(content)
+
+
 def _generate_stream(user_query, thread_id):
     try:
         for event in stream_agent(user_query, thread_id):
@@ -47,7 +58,7 @@ def _generate_stream(user_query, thread_id):
                                 "args": tc["args"]
                             })
                     if msg.content:
-                        yield _sse("response", {"content": msg.content})
+                        yield _sse("response", {"content": _normalize_content(msg.content)})
 
             if "tools" in event:
                 for msg in event["tools"].get("messages", []):

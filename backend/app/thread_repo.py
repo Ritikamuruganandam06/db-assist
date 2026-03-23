@@ -45,6 +45,17 @@ def delete_thread(thread_id):
         _thread_ids.remove(thread_id)
 
 
+def _normalize_content(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in content
+        )
+    return str(content)
+
+
 def get_thread_messages(agent, thread_id):
     config = _get_config(thread_id)
     state = agent.get_state(config)
@@ -54,9 +65,9 @@ def get_thread_messages(agent, thread_id):
     messages = []
     for msg in state.values.get("messages", []):
         if msg.type == "human":
-            messages.append({"role": "user", "content": msg.content})
+            messages.append({"role": "user", "content": _normalize_content(msg.content)})
         elif msg.type == "ai":
-            entry = {"role": "assistant", "content": msg.content, "tool_calls": []}
+            entry = {"role": "assistant", "content": _normalize_content(msg.content), "tool_calls": []}
             if hasattr(msg, "tool_calls") and msg.tool_calls:
                 for tc in msg.tool_calls:
                     entry["tool_calls"].append({
@@ -68,6 +79,6 @@ def get_thread_messages(agent, thread_id):
             messages.append({
                 "role": "tool",
                 "name": msg.name,
-                "content": msg.content
+                "content": _normalize_content(msg.content)
             })
     return messages

@@ -1,16 +1,13 @@
 from langchain.agents import create_agent
-from langchain_openai import AzureChatOpenAI
 from app.tools import sql_query_execution_tool, write_markdown_schema_tool
 from app.prompt import get_system_prompt
 from app.thread_repo import get_memory
+from app.model import get_model
 from dotenv import load_dotenv
 
 load_dotenv()
 
-model = AzureChatOpenAI(
-    model="gpt-4.1",
-    azure_deployment="gpt-4.1"
-)
+model = get_model()
 
 tools = [sql_query_execution_tool, write_markdown_schema_tool]
 
