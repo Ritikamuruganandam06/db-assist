@@ -34,7 +34,7 @@ const SchemaDisplay = ({ schema, recentSchemas = [], onRefresh }) => {
       </div>
 
       <div className="schema-content">
-        {/* Current schema display */}
+        {/* Current schema from db.json */}
         {schema && (
           <div className="schema-current">
             <div className="schema-section-title">Current Schema</div>

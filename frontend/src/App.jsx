@@ -44,36 +44,15 @@ function App() {
       const botMsg = { role: 'bot', content: data.content || 'No response received.' };
       setMessages(prev => [...prev, botMsg]);
 
-      // Extract only SQL schema blocks from bot response
-      const content = data.content || '';
-      const sqlBlockRegex = /```(?:sql)?\s*\n([\s\S]*?)\n```/gi;
-      const schemaStatementRegex = /((?:CREATE|ALTER|DROP)\s+TABLE[\s\S]*?;)/gi;
-      
-      let schemaBlocks = [];
-      // First try to extract from markdown code blocks
-      let match;
-      while ((match = sqlBlockRegex.exec(content)) !== null) {
-        const block = match[1].trim();
-        if (/CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE/i.test(block)) {
-          schemaBlocks.push(block);
-        }
-      }
-      // If no code blocks found, try to extract raw SQL statements
-      if (schemaBlocks.length === 0) {
-        while ((match = schemaStatementRegex.exec(content)) !== null) {
-          schemaBlocks.push(match[1].trim());
-        }
-      }
+      // Refresh latest schema from db.json after each chat response
+      handleRefreshSchema();
 
-      if (schemaBlocks.length > 0) {
-        const schemaOnly = schemaBlocks.join('\n\n');
-        const timestamp = new Date().toLocaleTimeString();
-        setRecentSchemas(prev => [
-          { id: Date.now(), content: schemaOnly, query: text, time: timestamp },
-          ...prev.slice(0, 9)
-        ]);
-        setSchema(schemaOnly);
-      }
+      // Track this response in recently used schemas
+      const timestamp = new Date().toLocaleTimeString();
+      setRecentSchemas(prev => [
+        { id: Date.now(), content: data.content || '', query: text, time: timestamp },
+        ...prev.slice(0, 9)
+      ]);
 
       // Update chat history
       setChatHistory(prev =>
@@ -93,18 +72,18 @@ function App() {
 
   const handleRefreshSchema = async () => {
     try {
-      const res = await fetch(`${API_URL}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_query: 'Show me the current database schema in markdown format' }),
-      });
+      const res = await fetch(`${API_URL}/schema`);
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
       const data = await res.json();
-      setSchema(data.content || null);
+      setSchema(data.schema || null);
     } catch (err) {
       console.error('Failed to refresh schema:', err);
     }
   };
+
+  useEffect(() => {
+    handleRefreshSchema();
+  }, []);
 
   const handleNewChat = () => {
     const newId = Date.now();
