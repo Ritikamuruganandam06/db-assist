@@ -1,217 +1,258 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Chat from './components/Chat';
 import Sidebar from './components/Sidebar';
 import SchemaDisplay from './components/SchemaDisplay';
 import './App.css';
 
-const API_URL = 'http://localhost:8000';
+const API = 'http://localhost:8000';
 
-// Split full schema markdown into { tableName: markdownSection }
-const parseSchemaIntoTables = (schemaMarkdown) => {
-  if (!schemaMarkdown) return {};
-  const sections = schemaMarkdown.split(/(?=###\s)/);
-  const tables = {};
-  for (const section of sections) {
-    const nameMatch = section.match(/^###\s+(\w+)/);
-    if (nameMatch) {
-      tables[nameMatch[1].toLowerCase()] = section.trim();
+function buildMessagesFromHistory(raw) {
+  const messages = [];
+  let currentBot = null;
+
+  for (const msg of raw) {
+    if (msg.role === 'user') {
+      if (currentBot) {
+        messages.push({ role: 'bot', items: currentBot });
+        currentBot = null;
+      }
+      messages.push({ role: 'user', content: msg.content });
+    } else if (msg.role === 'assistant') {
+      if (!currentBot) currentBot = [];
+      if (msg.tool_calls && msg.tool_calls.length > 0) {
+        for (const tc of msg.tool_calls) {
+          currentBot.push({ type: 'tool_call', name: tc.name, args: tc.args });
+        }
+      }
+      if (msg.content) {
+        currentBot.push({ type: 'text', content: msg.content });
+      }
+    } else if (msg.role === 'tool') {
+      if (!currentBot) currentBot = [];
+      currentBot.push({ type: 'tool_result', name: msg.name, content: msg.content });
     }
   }
-  return tables;
-};
 
-// Build bidirectional relationship map from REFERENCES constraints
-const buildRelationships = (tableMap) => {
-  const relations = {};
-  for (const [tableName, sectionMd] of Object.entries(tableMap)) {
-    if (!relations[tableName]) relations[tableName] = new Set();
-    for (const match of sectionMd.matchAll(/REFERENCES\s+(\w+)/gi)) {
-      const ref = match[1].toLowerCase();
-      if (!relations[ref]) relations[ref] = new Set();
-      relations[tableName].add(ref);
-      relations[ref].add(tableName);
-    }
+  if (currentBot) {
+    messages.push({ role: 'bot', items: currentBot });
   }
-  return relations;
-};
+
+  return messages;
+}
+
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === 'system') {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    root.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+  } else {
+    root.setAttribute('data-theme', theme);
+  }
+}
 
 function App() {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [fullSchema, setFullSchema] = useState(null);
-  const [activeTables, setActiveTables] = useState(() => {
-    const saved = localStorage.getItem('activeTables');
-    return saved ? new Set(JSON.parse(saved)) : new Set();
-  });
-  const [recentSchemas, setRecentSchemas] = useState([]);
-  const [chatHistory, setChatHistory] = useState([
-    { id: 1, title: 'New Chat', messages: [] }
-  ]);
-  const [activeChatId, setActiveChatId] = useState(1);
+  const [schema, setSchema] = useState(null);
+  const [threads, setThreads] = useState([]);
+  const [activeThreadId, setActiveThreadId] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'system');
 
-  const tableMap = useMemo(() => parseSchemaIntoTables(fullSchema), [fullSchema]);
-  const relations = useMemo(() => buildRelationships(tableMap), [tableMap]);
-
-  // Filtered schema: active tables + their directly related tables
-  // Falls back to full schema on initial load (no interaction yet)
-  const schema = useMemo(() => {
-    if (activeTables.size === 0) return fullSchema;
-    const toShow = new Set(activeTables);
-    for (const t of activeTables) {
-      if (relations[t]) {
-        for (const related of relations[t]) toShow.add(related);
-      }
+  useEffect(() => {
+    applyTheme(theme);
+    localStorage.setItem('theme', theme);
+    if (theme === 'system') {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = () => applyTheme('system');
+      mq.addEventListener('change', handler);
+      return () => mq.removeEventListener('change', handler);
     }
-    const sections = [...toShow].filter(t => tableMap[t]).map(t => tableMap[t]);
-    return sections.length > 0 ? sections.join('\n\n') : null;
-  }, [activeTables, tableMap, relations]);
+  }, [theme]);
 
-  const handleSendMessage = async (text) => {
-    const userMsg = { role: 'user', content: text };
-    setMessages(prev => [...prev, userMsg]);
-    setIsLoading(true);
-
-    setChatHistory(prev =>
-      prev.map(chat =>
-        chat.id === activeChatId && chat.messages.length === 0
-          ? { ...chat, title: text.slice(0, 40) + (text.length > 40 ? '...' : '') }
-          : chat
-      )
-    );
-
+  const fetchSchema = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/chat`, {
+      const res = await fetch(`${API}/schema`);
+      const data = await res.json();
+      setSchema(data.schema || null);
+    } catch (e) {
+      console.error('Failed to fetch schema:', e);
+    }
+  }, []);
+
+  const fetchThreads = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/threads`);
+      const data = await res.json();
+      setThreads(data.threads || []);
+    } catch (e) {
+      console.error('Failed to fetch threads:', e);
+    }
+  }, []);
+
+  const loadThreadMessages = useCallback(async (threadId) => {
+    try {
+      const res = await fetch(`${API}/threads/${threadId}/messages`);
+      const data = await res.json();
+      setMessages(buildMessagesFromHistory(data.messages || []));
+    } catch (e) {
+      console.error('Failed to load messages:', e);
+      setMessages([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSchema();
+    fetchThreads();
+  }, [fetchSchema, fetchThreads]);
+
+  const handleNewChat = async () => {
+    const threadId = crypto.randomUUID();
+    try {
+      await fetch(`${API}/threads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_query: text }),
+        body: JSON.stringify({ thread_id: threadId }),
+      });
+      await fetchThreads();
+      setActiveThreadId(threadId);
+      setMessages([]);
+    } catch (e) {
+      console.error('Failed to create thread:', e);
+    }
+  };
+
+  const handleSelectThread = async (threadId) => {
+    setActiveThreadId(threadId);
+    await loadThreadMessages(threadId);
+  };
+
+  const handleDeleteThread = async (threadId) => {
+    try {
+      await fetch(`${API}/threads/${threadId}`, { method: 'DELETE' });
+      await fetchThreads();
+      if (threadId === activeThreadId) {
+        setActiveThreadId(null);
+        setMessages([]);
+      }
+    } catch (e) {
+      console.error('Failed to delete thread:', e);
+    }
+  };
+
+  const handleSendMessage = async (text) => {
+    if (!activeThreadId) {
+      const threadId = crypto.randomUUID();
+      try {
+        await fetch(`${API}/threads`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ thread_id: threadId }),
+        });
+        setActiveThreadId(threadId);
+        await streamChat(text, threadId);
+        await fetchThreads();
+      } catch (e) {
+        console.error('Failed to create thread:', e);
+      }
+      return;
+    }
+    const isFirstMessage = messages.length === 0;
+    await streamChat(text, activeThreadId);
+    if (isFirstMessage) await fetchThreads();
+  };
+
+  const streamChat = async (text, threadId) => {
+    const userMsg = { role: 'user', content: text };
+    const botMsg = { role: 'bot', items: [], streaming: true };
+
+    setMessages(prev => [...prev, userMsg, botMsg]);
+    setIsLoading(true);
+
+    const items = [];
+
+    const updateBotMessage = () => {
+      setMessages(prev => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: 'bot', items: [...items], streaming: true };
+        return updated;
+      });
+    };
+
+    try {
+      const res = await fetch(`${API}/chat/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_query: text, thread_id: threadId }),
       });
 
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
-      const data = await res.json();
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let eventType = null;
 
-      const botMsg = { role: 'bot', content: data.content || 'No response received.' };
-      setMessages(prev => [...prev, botMsg]);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      const content = data.content || '';
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
 
-      // Re-fetch schema (agent may have created/altered tables)
-      const schemaRes = await fetch(`${API_URL}/schema`);
-      const schemaData = schemaRes.ok ? await schemaRes.json() : {};
-      const latestSchema = schemaData.schema || null;
-      if (latestSchema) setFullSchema(latestSchema);
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7);
+          } else if (line.startsWith('data: ') && eventType) {
+            const data = JSON.parse(line.slice(6));
 
-      // Find which known tables are mentioned in the query + bot response
-      const currentTableMap = parseSchemaIntoTables(latestSchema || fullSchema);
-      const combinedText = text + ' ' + content;
-      const mentioned = new Set();
-      for (const tableName of Object.keys(currentTableMap)) {
-        if (new RegExp(`\\b${tableName}\\b`, 'i').test(combinedText)) {
-          mentioned.add(tableName);
+            if (eventType === 'tool_call') {
+              items.push({ type: 'tool_call', name: data.name, args: data.args });
+              updateBotMessage();
+            } else if (eventType === 'tool_result') {
+              items.push({ type: 'tool_result', name: data.name, content: data.content });
+              updateBotMessage();
+              fetchSchema();
+            } else if (eventType === 'response') {
+              items.push({ type: 'text', content: data.content });
+              updateBotMessage();
+            } else if (eventType === 'error') {
+              items.push({ type: 'text', content: `Error: ${data.message}` });
+              updateBotMessage();
+            }
+            eventType = null;
+          }
         }
       }
 
-      if (mentioned.size > 0) {
-        setActiveTables(mentioned);
-        localStorage.setItem('activeTables', JSON.stringify([...mentioned]));
-      }
-
-      // Track in recentSchemas
-      const sqlBlockRegex = /```(?:sql)?\s*\n([\s\S]*?)\n```/gi;
-      const schemaStatementRegex = /((?:CREATE|ALTER|DROP)\s+TABLE[\s\S]*?;)/gi;
-      let schemaBlocks = [];
-      let match;
-      while ((match = sqlBlockRegex.exec(content)) !== null) {
-        const block = match[1].trim();
-        if (/CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE/i.test(block)) {
-          schemaBlocks.push(block);
-        }
-      }
-      if (schemaBlocks.length === 0) {
-        while ((match = schemaStatementRegex.exec(content)) !== null) {
-          schemaBlocks.push(match[1].trim());
-        }
-      }
-      if (schemaBlocks.length > 0) {
-        const timestamp = new Date().toLocaleTimeString();
-        setRecentSchemas(prev => [
-          { id: Date.now(), content: schemaBlocks.join('\n\n'), query: text, time: timestamp },
-          ...prev.slice(0, 9)
-        ]);
-      }
-
-      setChatHistory(prev =>
-        prev.map(chat =>
-          chat.id === activeChatId
-            ? { ...chat, messages: [...chat.messages, userMsg, botMsg] }
-            : chat
-        )
-      );
-    } catch (err) {
-      const errorMsg = { role: 'bot', content: `⚠️ Error: ${err.message}` };
-      setMessages(prev => [...prev, errorMsg]);
+      setMessages(prev => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: 'bot', items: [...items] };
+        return updated;
+      });
+      await fetchSchema();
+    } catch (e) {
+      setMessages(prev => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: 'bot', items: [{ type: 'text', content: `Error: ${e.message}` }] };
+        return updated;
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleRefreshSchema = async () => {
-    try {
-      const res = await fetch(`${API_URL}/schema`);
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
-      const data = await res.json();
-      const fetched = data.schema || null;
-      setFullSchema(fetched);
-    } catch (err) {
-      console.error('Failed to fetch schema:', err);
-    }
-  };
-
-  useEffect(() => {
-    handleRefreshSchema();
-  }, []);
-
-  const handleNewChat = () => {
-    const newId = Date.now();
-    const newChat = { id: newId, title: 'New Chat', messages: [] };
-    setChatHistory(prev => [newChat, ...prev]);
-    setActiveChatId(newId);
-    setMessages([]);
-  };
-
-  const handleSelectChat = (chatId) => {
-    setActiveChatId(chatId);
-    const chat = chatHistory.find(c => c.id === chatId);
-    setMessages(chat ? chat.messages : []);
-  };
-
-  const handleDeleteChat = (chatId) => {
-    setChatHistory(prev => {
-      const updated = prev.filter(c => c.id !== chatId);
-      if (updated.length === 0) {
-        const newChat = { id: Date.now(), title: 'New Chat', messages: [] };
-        setActiveChatId(newChat.id);
-        setMessages([]);
-        return [newChat];
-      }
-      if (chatId === activeChatId) {
-        setActiveChatId(updated[0].id);
-        setMessages(updated[0].messages);
-      }
-      return updated;
-    });
-  };
-
   return (
     <div className="app-layout">
       <Sidebar
-        chatHistory={chatHistory}
-        activeChatId={activeChatId}
+        threads={threads}
+        activeThreadId={activeThreadId}
         onNewChat={handleNewChat}
-        onSelectChat={handleSelectChat}
-        onDeleteChat={handleDeleteChat}
+        onSelectThread={handleSelectThread}
+        onDeleteThread={handleDeleteThread}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
+        theme={theme}
+        onThemeChange={setTheme}
       />
       <main className={`main-content ${sidebarOpen ? '' : 'sidebar-closed'}`}>
         <Chat
@@ -220,7 +261,7 @@ function App() {
           isLoading={isLoading}
         />
       </main>
-      <SchemaDisplay schema={schema} recentSchemas={recentSchemas} />
+      <SchemaDisplay schema={schema} onRefresh={fetchSchema} />
     </div>
   );
 }
