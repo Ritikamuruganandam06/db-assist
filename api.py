@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import json
 from agent import call_agent
+from utils import get_markdown_schema
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -15,3 +17,11 @@ class ChatRequest(BaseModel):
 @app.post("/chat")
 async def chat(request: ChatRequest):
     return call_agent(request.user_query)
+@app.get("/schema")
+async def get_schema():
+    try:
+        with open("db.json","r") as f:
+            data = json.load(f)
+        return {"schema" : data.get("schema")}
+    except Exception as e:
+        return {"error":str(e)}

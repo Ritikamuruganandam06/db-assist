@@ -2,15 +2,8 @@ import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-const SchemaDisplay = ({ schema, recentSchemas = [], onRefresh }) => {
-  const [spinning, setSpinning] = useState(false);
+const SchemaDisplay = ({ schema, recentSchemas = [] }) => {
   const [expandedId, setExpandedId] = useState(null);
-
-  const handleRefresh = async () => {
-    setSpinning(true);
-    await onRefresh();
-    setTimeout(() => setSpinning(false), 800);
-  };
 
   const toggleExpand = (id) => {
     setExpandedId(expandedId === id ? null : id);
@@ -23,14 +16,6 @@ const SchemaDisplay = ({ schema, recentSchemas = [], onRefresh }) => {
           <span className="icon">🗄️</span>
           Schema
         </h2>
-        <button
-          className={`refresh-btn ${spinning ? 'spinning' : ''}`}
-          onClick={handleRefresh}
-          id="refresh-schema-btn"
-        >
-          <span className="refresh-icon">↻</span>
-          Refresh
-        </button>
       </div>
 
       <div className="schema-content">
