@@ -49,8 +49,8 @@ def _normalize_content(content):
 def _generate_stream(user_query, thread_id):
     try:
         for event in stream_agent(user_query, thread_id):
-            if "model" in event:
-                for msg in event["model"].get("messages", []):
+            if "agent" in event:
+                for msg in event["agent"].get("messages", []):
                     if hasattr(msg, "tool_calls") and msg.tool_calls:
                         for tc in msg.tool_calls:
                             yield _sse("tool_call", {

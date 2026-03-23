@@ -1,4 +1,4 @@
-from langchain.agents import create_agent
+from langgraph.prebuilt import create_react_agent
 from app.tools import sql_query_execution_tool, write_markdown_schema_tool
 from app.prompt import get_system_prompt
 from app.thread_repo import get_memory
@@ -11,11 +11,11 @@ model = get_model()
 
 tools = [sql_query_execution_tool, write_markdown_schema_tool]
 
-agent = create_agent(
+agent = create_react_agent(
     model,
     tools,
     checkpointer=get_memory(),
-    system_prompt=get_system_prompt()
+    prompt=get_system_prompt()
 )
 
 
